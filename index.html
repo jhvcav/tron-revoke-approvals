@@ -227,7 +227,7 @@
         
         <div class="status-card">
             <div id="connectionStatus">
-                <strong>État de la connexion :</strong> <span id="statusText">Déconnecté</span>
+                <strong>État de la connexion :</strong> <span id="statusText" style="font-weight: bold;">Vérification en cours...</span>
             </div>
         </div>
         
@@ -349,8 +349,44 @@
             async checkTronLink() {
                 if (window.tronWeb && window.tronWeb.ready) {
                     this.showAlert('TronLink détecté et prêt', 'success');
+                    // Vérifier si déjà connecté
+                    if (window.tronWeb.defaultAddress && window.tronWeb.defaultAddress.base58) {
+                        this.autoConnect();
+                    }
                 } else {
                     this.showAlert('TronLink non détecté. Veuillez installer TronLink pour continuer.', 'error');
+                }
+            }
+            
+            async autoConnect() {
+                try {
+                    this.tronWeb = window.tronWeb;
+                    this.userAddress = this.tronWeb.defaultAddress.base58;
+                    
+                    if (this.userAddress) {
+                        const balance = await this.tronWeb.trx.getBalance(this.userAddress);
+                        const trxBalance = this.tronWeb.fromSun(balance);
+                        
+                        document.getElementById('walletAddress').value = this.userAddress;
+                        document.getElementById('trxBalance').value = `${trxBalance} TRX`;
+                        document.getElementById('walletInfo').style.display = 'block';
+                        document.getElementById('connectBtn').style.display = 'none';
+                        
+                        // Activer les boutons
+                        const buttons = ['checkApprovalsBtn', 'manualRevokeBtn', 'checkAllowanceBtn', 'diagnosticBtn', 'scanAllTokensBtn', 'revokeAllBtn'];
+                        buttons.forEach(btnId => {
+                            const btn = document.getElementById(btnId);
+                            if (btn) btn.disabled = false;
+                        });
+                        
+                        document.getElementById('statusText').textContent = 'Connecté';
+                    document.getElementById('statusText').style.color = '#28a745';
+                        document.getElementById('statusText').style.color = '#28a745';
+                        
+                        this.showAlert('Wallet automatiquement connecté!', 'success');
+                    }
+                } catch (error) {
+                    console.log('Auto-connexion échouée:', error);
                 }
             }
             
@@ -698,7 +734,7 @@
                     this.showAlert('🎯 Envoi de approve(Bridgers, 0) sur USDT...', 'warning');
                     
                     const transaction = await usdtContract.approve(bridgersAddress, 0).send({
-                        feeLimit: 150000000, // Plus de TRX au cas où
+                        feeLimit: 50000000, // Réduit à 50 TRX
                         from: this.userAddress
                     });
                     
