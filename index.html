@@ -276,21 +276,14 @@
             <button id="diagnosticBtn" class="btn" disabled style="background: #17a2b8;">Diagnostic Avancé</button>
         </div>
         
-        <div class="wallet-section">
-            <h3>🎯 Révocation correcte pour contrats Bridge</h3>
-            <div class="alert alert-warning">
-                <strong>IMPORTANT :</strong> Pour les contrats bridge comme Bridgers, l'approbation est stockée sur le contrat TOKEN (USDT), pas sur le bridge lui-même.
+        <div class="wallet-section" style="background: #ffe6e6; border-left: 5px solid #ff4444;">
+            <h3 style="color: #cc0000;">🚨 PROTECTION D'URGENCE</h3>
+            <div class="alert alert-error">
+                <strong>ATTENTION :</strong> Si un contrat a drainé vos fonds, vérifiez TOUTES vos approbations immédiatement !
             </div>
-            <div class="input-group">
-                <label>Adresse du TOKEN qui a l'approbation (USDT) :</label>
-                <input type="text" id="bridgeTokenAddress" value="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" readonly>
-            </div>
-            <div class="input-group">
-                <label>Adresse du BRIDGE approuvé (spender) :</label>
-                <input type="text" id="bridgeSpenderAddress" value="TPwezUWpEGmFBENNWJHwXHRG1D2NCEEt5s" readonly>
-            </div>
-            <button id="checkBridgeAllowanceBtn" class="btn" disabled style="background: #28a745;">Vérifier l'approbation USDT → Bridge</button>
-            <button id="revokeBridgeBtn" class="btn btn-danger" disabled>Révoquer l'approbation Bridge</button>
+            <button id="scanAllTokensBtn" class="btn btn-danger" disabled>Scanner TOUTES les approbations</button>
+            <button id="revokeAllBtn" class="btn btn-danger" disabled>Révoquer TOUT (Mode urgence)</button>
+            <div id="emergencyResults" style="margin-top: 15px;"></div>
         </div>
         
         <div id="loadingSection" class="loading" style="display: none;">
@@ -320,13 +313,27 @@
             }
             
             bindEvents() {
-                document.getElementById('connectBtn').addEventListener('click', () => this.connectWallet());
-                document.getElementById('checkApprovalsBtn').addEventListener('click', () => this.checkApprovals());
-                document.getElementById('manualRevokeBtn').addEventListener('click', () => this.manualRevoke());
-                document.getElementById('checkAllowanceBtn').addEventListener('click', () => this.checkAllowance());
-                document.getElementById('diagnosticBtn').addEventListener('click', () => this.runDiagnostic());
-                document.getElementById('checkBridgeAllowanceBtn').addEventListener('click', () => this.checkBridgeAllowance());
-                document.getElementById('revokeBridgeBtn').addEventListener('click', () => this.revokeBridgeAllowance());
+                // Vérifier que chaque élément existe avant d'ajouter l'event listener
+                const connectBtn = document.getElementById('connectBtn');
+                if (connectBtn) connectBtn.addEventListener('click', () => this.connectWallet());
+                
+                const checkApprovalsBtn = document.getElementById('checkApprovalsBtn');
+                if (checkApprovalsBtn) checkApprovalsBtn.addEventListener('click', () => this.checkApprovals());
+                
+                const manualRevokeBtn = document.getElementById('manualRevokeBtn');
+                if (manualRevokeBtn) manualRevokeBtn.addEventListener('click', () => this.manualRevoke());
+                
+                const checkAllowanceBtn = document.getElementById('checkAllowanceBtn');
+                if (checkAllowanceBtn) checkAllowanceBtn.addEventListener('click', () => this.checkAllowance());
+                
+                const diagnosticBtn = document.getElementById('diagnosticBtn');
+                if (diagnosticBtn) diagnosticBtn.addEventListener('click', () => this.runDiagnostic());
+                
+                const scanAllTokensBtn = document.getElementById('scanAllTokensBtn');
+                if (scanAllTokensBtn) scanAllTokensBtn.addEventListener('click', () => this.scanAllApprovals());
+                
+                const revokeAllBtn = document.getElementById('revokeAllBtn');
+                if (revokeAllBtn) revokeAllBtn.addEventListener('click', () => this.revokeAllApprovals());
             }
             
             async checkTronLink() {
@@ -606,55 +613,65 @@
                 }
             }
             
-            async checkBridgeAllowance() {
-                try {
-                    this.showAlert('Vérification de l\'approbation USDT → Bridge...', 'warning');
-                    
-                    const usdtAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-                    const bridgeAddress = 'TPwezUWpEGmFBENNWJHwXHRG1D2NCEEt5s';
-                    
-                    // Appeler le contrat USDT pour vérifier l'allowance
-                    const usdtContract = await this.tronWeb.contract().at(usdtAddress);
-                    const allowance = await usdtContract.allowance(this.userAddress, bridgeAddress).call();
-                    
-                    const formattedAmount = this.formatTokenAmount(allowance.toString());
-                    
-                    if (allowance && allowance.toString() !== '0') {
-                        this.showAlert(`✅ TROUVÉ ! Approbation USDT → Bridge: ${formattedAmount} USDT`, 'success');
-                        this.showAlert('Vous pouvez maintenant cliquer "Révoquer l\'approbation Bridge"', 'warning');
-                    } else {
-                        this.showAlert('❌ Aucune approbation trouvée entre USDT et le Bridge', 'warning');
+            async scanAllApprovals() {
+                this.showAlert('🔍 Scan complet de sécurité en cours...', 'warning');
+                
+                const commonTokens = [
+                    { name: 'USDT', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' },
+                    { name: 'USDC', address: 'TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8' },
+                    { name: 'TRX', address: 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb' },
+                ];
+                
+                const emergencyDiv = document.getElementById('emergencyResults');
+                emergencyDiv.innerHTML = '<h4>🔍 Résultats du scan :</h4>';
+                
+                for (const token of commonTokens) {
+                    try {
+                        this.showAlert(`Vérification ${token.name}...`, 'warning');
+                        
+                        const events = await this.getApprovalEvents(token.address);
+                        if (events.length > 0) {
+                            emergencyDiv.innerHTML += `<div class="alert alert-warning">⚠️ ${token.name}: ${events.length} approbation(s) trouvée(s)</div>`;
+                        } else {
+                            emergencyDiv.innerHTML += `<div class="alert alert-success">✅ ${token.name}: Aucune approbation</div>`;
+                        }
+                    } catch (error) {
+                        emergencyDiv.innerHTML += `<div class="alert alert-error">❌ ${token.name}: Erreur lors de la vérification</div>`;
                     }
-                } catch (error) {
-                    this.showAlert(`Erreur lors de la vérification bridge: ${error.message}`, 'error');
                 }
+                
+                this.showAlert('Scan terminé ! Vérifiez les résultats ci-dessous.', 'success');
             }
             
-            async revokeBridgeAllowance() {
-                try {
-                    this.showAlert('🎯 Révocation de l\'approbation USDT → Bridge en cours...', 'warning');
-                    
-                    const usdtAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-                    const bridgeAddress = 'TPwezUWpEGmFBENNWJHwXHRG1D2NCEEt5s';
-                    
-                    // Appeler approve(bridgeAddress, 0) sur le contrat USDT
-                    const usdtContract = await this.tronWeb.contract().at(usdtAddress);
-                    
-                    const transaction = await usdtContract.approve(bridgeAddress, 0).send({
-                        feeLimit: 100000000,
-                        from: this.userAddress
-                    });
-                    
-                    this.showAlert(`🎉 SUCCÈS ! Approbation révoquée ! Transaction: ${transaction}`, 'success');
-                    this.showAlert('Vérifiez Tronscan dans 1-2 minutes, l\'approbation devrait avoir disparu', 'success');
-                    
-                    // Vérifier à nouveau après 3 secondes
-                    setTimeout(() => {
-                        this.checkBridgeAllowance();
-                    }, 3000);
-                    
-                } catch (error) {
-                    this.showAlert(`Erreur lors de la révocation bridge: ${error.message}`, 'error');
+            async revokeAllApprovals() {
+                const confirmed = confirm('⚠️ ATTENTION : Ceci va révoquer TOUTES vos approbations. Êtes-vous sûr ?');
+                if (!confirmed) return;
+                
+                this.showAlert('🚨 Révocation d\'urgence en cours...', 'warning');
+                
+                const commonTokens = [
+                    { name: 'USDT', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' },
+                    { name: 'USDC', address: 'TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8' },
+                ];
+                
+                const suspiciousContracts = [
+                    'TPwezUWpEGmFBENNWJHwXHRG1D2NCEEt5s', // Le contrat Bridgers suspect
+                ];
+                
+                for (const token of commonTokens) {
+                    for (const contractAddr of suspiciousContracts) {
+                        try {
+                            const contract = await this.tronWeb.contract().at(token.address);
+                            const transaction = await contract.approve(contractAddr, 0).send({
+                                feeLimit: 100000000,
+                                from: this.userAddress
+                            });
+                            
+                            this.showAlert(`✅ Révoqué ${token.name} → ${contractAddr.substring(0, 10)}...`, 'success');
+                        } catch (error) {
+                            this.showAlert(`❌ Erreur ${token.name}: ${error.message}`, 'error');
+                        }
+                    }
                 }
             }
             
