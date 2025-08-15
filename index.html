@@ -273,6 +273,17 @@
             </div>
             <button id="manualRevokeBtn" class="btn btn-danger" disabled>Révoquer Manuellement</button>
             <button id="checkAllowanceBtn" class="btn" disabled style="background: #28a745;">Vérifier l'Allowance</button>
+            <button id="diagnosticBtn" class="btn" disabled style="background: #17a2b8;">Diagnostic Avancé</button>
+        </div>
+        
+        <div class="wallet-section">
+            <h3>🔍 Diagnostic et alternatives</h3>
+            <div class="input-group">
+                <label>Adresse exacte depuis Tronscan (avec espaces/caractères spéciaux) :</label>
+                <input type="text" id="rawContractAddress" placeholder="Collez exactement ce que vous voyez sur Tronscan">
+            </div>
+            <button id="cleanAddressBtn" class="btn" disabled style="background: #ffc107; color: black;">Nettoyer l'adresse</button>
+            <button id="forceRevokeBtn" class="btn btn-danger" disabled>Forcer la révocation</button>
         </div>
         
         <div id="loadingSection" class="loading" style="display: none;">
@@ -306,6 +317,9 @@
                 document.getElementById('checkApprovalsBtn').addEventListener('click', () => this.checkApprovals());
                 document.getElementById('manualRevokeBtn').addEventListener('click', () => this.manualRevoke());
                 document.getElementById('checkAllowanceBtn').addEventListener('click', () => this.checkAllowance());
+                document.getElementById('diagnosticBtn').addEventListener('click', () => this.runDiagnostic());
+                document.getElementById('cleanAddressBtn').addEventListener('click', () => this.cleanAddress());
+                document.getElementById('forceRevokeBtn').addEventListener('click', () => this.forceRevoke());
             }
             
             async checkTronLink() {
@@ -343,6 +357,9 @@
                     document.getElementById('checkApprovalsBtn').disabled = false;
                     document.getElementById('manualRevokeBtn').disabled = false;
                     document.getElementById('checkAllowanceBtn').disabled = false;
+                    document.getElementById('diagnosticBtn').disabled = false;
+                    document.getElementById('cleanAddressBtn').disabled = false;
+                    document.getElementById('forceRevokeBtn').disabled = false;
                     document.getElementById('statusText').textContent = 'Connecté';
                     
                     this.showAlert('Wallet connecté avec succès!', 'success');
@@ -503,6 +520,129 @@
                     
                 } catch (error) {
                     this.showAlert(`Erreur lors de la révocation manuelle: ${error.message}`, 'error');
+                }
+            }
+            
+            async runDiagnostic() {
+                const tokenAddress = document.getElementById('manualTokenAddress').value.trim();
+                const spenderAddress = document.getElementById('manualContractAddress').value.trim();
+                
+                if (!tokenAddress || !spenderAddress) {
+                    this.showAlert('Veuillez remplir les deux adresses', 'error');
+                    return;
+                }
+                
+                this.showAlert('Diagnostic en cours...', 'warning');
+                
+                try {
+                    // Test 1: Validation des adresses
+                    const isValidToken = this.tronWeb.isAddress(tokenAddress);
+                    const isValidSpender = this.tronWeb.isAddress(spenderAddress);
+                    
+                    this.showAlert(`Adresse token valide: ${isValidToken}, Adresse spender valide: ${isValidSpender}`, 'warning');
+                    
+                    if (!isValidToken || !isValidSpender) {
+                        this.showAlert('Une des adresses n\'est pas valide', 'error');
+                        return;
+                    }
+                    
+                    // Test 2: Conversion hex/base58
+                    const tokenHex = this.tronWeb.address.toHex(tokenAddress);
+                    const spenderHex = this.tronWeb.address.toHex(spenderAddress);
+                    
+                    this.showAlert(`Token (hex): ${tokenHex}`, 'warning');
+                    this.showAlert(`Spender (hex): ${spenderHex}`, 'warning');
+                    
+                    // Test 3: Appel direct à la blockchain
+                    const contract = await this.tronWeb.contract().at(tokenAddress);
+                    
+                    // Test 4: Vérifier que le contrat est bien un TRC20
+                    try {
+                        const name = await contract.name().call();
+                        const symbol = await contract.symbol().call();
+                        this.showAlert(`Token trouvé: ${name} (${symbol})`, 'success');
+                    } catch (e) {
+                        this.showAlert('Erreur: Ce n\'est peut-être pas un contrat TRC20 valide', 'error');
+                    }
+                    
+                    // Test 5: Allowance avec différentes méthodes
+                    try {
+                        const allowance1 = await contract.allowance(this.userAddress, spenderAddress).call();
+                        this.showAlert(`Allowance (méthode 1): ${allowance1}`, 'warning');
+                        
+                        // Essai avec adresses hex
+                        const allowance2 = await contract.allowance(
+                            this.tronWeb.address.toHex(this.userAddress), 
+                            this.tronWeb.address.toHex(spenderAddress)
+                        ).call();
+                        this.showAlert(`Allowance (méthode 2 - hex): ${allowance2}`, 'warning');
+                        
+                    } catch (e) {
+                        this.showAlert(`Erreur allowance: ${e.message}`, 'error');
+                    }
+                    
+                    // Test 6: Recherche via API alternative
+                    try {
+                        const apiResponse = await fetch(`https://apilist.tronscanapi.com/api/account/tokens?address=${this.userAddress}&start=0&limit=50&token=${tokenAddress}`);
+                        const apiData = await apiResponse.json();
+                        this.showAlert(`Données API Tronscan: ${JSON.stringify(apiData.data?.slice(0,2) || 'Aucune donnée')}`, 'warning');
+                    } catch (e) {
+                        this.showAlert('API Tronscan non accessible', 'warning');
+                    }
+                    
+                } catch (error) {
+                    this.showAlert(`Erreur diagnostic: ${error.message}`, 'error');
+                }
+            }
+            
+            cleanAddress() {
+                const rawAddress = document.getElementById('rawContractAddress').value;
+                
+                if (!rawAddress) {
+                    this.showAlert('Veuillez entrer l\'adresse brute', 'error');
+                    return;
+                }
+                
+                // Nettoyer l'adresse: supprimer espaces, caractères invisibles, etc.
+                let cleaned = rawAddress.replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+                
+                // Extraire seulement la partie qui ressemble à une adresse Tron
+                const tronAddressMatch = cleaned.match(/T[A-Za-z0-9]{33}/);
+                
+                if (tronAddressMatch) {
+                    cleaned = tronAddressMatch[0];
+                    document.getElementById('manualContractAddress').value = cleaned;
+                    this.showAlert(`Adresse nettoyée: ${cleaned}`, 'success');
+                } else {
+                    this.showAlert('Aucune adresse Tron valide trouvée dans le texte', 'error');
+                }
+            }
+            
+            async forceRevoke() {
+                const tokenAddress = document.getElementById('manualTokenAddress').value.trim();
+                const spenderAddress = document.getElementById('manualContractAddress').value.trim();
+                
+                if (!tokenAddress || !spenderAddress) {
+                    this.showAlert('Veuillez remplir les deux adresses', 'error');
+                    return;
+                }
+                
+                try {
+                    this.showAlert('FORCE: Tentative de révocation même sans allowance détectée...', 'warning');
+                    
+                    const contract = await this.tronWeb.contract().at(tokenAddress);
+                    
+                    // Forcer la révocation sans vérification préalable
+                    const transaction = await contract.approve(spenderAddress, 0).send({
+                        feeLimit: 150000000, // Augmenter la limite
+                        from: this.userAddress
+                    });
+                    
+                    this.showAlert(`FORCE: Transaction envoyée! ID: ${transaction}`, 'success');
+                    this.showAlert('Vérifiez Tronscan dans quelques minutes pour confirmer', 'warning');
+                    
+                } catch (error) {
+                    this.showAlert(`Erreur force: ${error.message}`, 'error');
                 }
             }
             
