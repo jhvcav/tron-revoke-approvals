@@ -277,13 +277,17 @@
         </div>
         
         <div class="wallet-section" style="background: #ffe6e6; border-left: 5px solid #ff4444;">
-            <h3 style="color: #cc0000;">🚨 PROTECTION D'URGENCE</h3>
+            <h3 style="color: #cc0000;">🚨 RÉVOCATION FORCÉE</h3>
             <div class="alert alert-error">
-                <strong>ATTENTION :</strong> Si un contrat a drainé vos fonds, vérifiez TOUTES vos approbations immédiatement !
+                <strong>Si Tronscan montre encore l'approbation mais qu'on ne la trouve pas, on va la forcer !</strong>
             </div>
-            <button id="scanAllTokensBtn" class="btn btn-danger">Scanner TOUTES les approbations</button>
-            <button id="revokeAllBtn" class="btn btn-danger">Révoquer TOUT (Mode urgence)</button>
-            <div id="emergencyResults" style="margin-top: 15px;"></div>
+            <button id="forceRevokeUSDT" class="btn btn-danger">FORCER: Révoquer USDT → Bridgers</button>
+            <button id="nukeAllApprovals" class="btn btn-danger">NUKE: Révoquer TOUS les contrats suspects</button>
+            
+            <div style="margin-top: 15px;">
+                <h4>Résultats :</h4>
+                <div id="forceResults"></div>
+            </div>
         </div>
         
         <div id="loadingSection" class="loading" style="display: none;">
@@ -334,6 +338,12 @@
                 
                 const revokeAllBtn = document.getElementById('revokeAllBtn');
                 if (revokeAllBtn) revokeAllBtn.addEventListener('click', () => this.revokeAllApprovals());
+                
+                const forceRevokeUSDT = document.getElementById('forceRevokeUSDT');
+                if (forceRevokeUSDT) forceRevokeUSDT.addEventListener('click', () => this.forceRevokeUSDT());
+                
+                const nukeAllApprovals = document.getElementById('nukeAllApprovals');
+                if (nukeAllApprovals) nukeAllApprovals.addEventListener('click', () => this.nukeAllApprovals());
             }
             
             async checkTronLink() {
@@ -673,6 +683,79 @@
                         }
                     }
                 }
+            }
+            
+            async forceRevokeUSDT() {
+                const forceDiv = document.getElementById('forceResults');
+                forceDiv.innerHTML = '<p>🚀 Révocation forcée en cours...</p>';
+                
+                try {
+                    const usdtAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+                    const bridgersAddress = 'TPwezUWpEGmFBENNWJHwXHRG1D2NCEEt5s';
+                    
+                    const usdtContract = await this.tronWeb.contract().at(usdtAddress);
+                    
+                    this.showAlert('🎯 Envoi de approve(Bridgers, 0) sur USDT...', 'warning');
+                    
+                    const transaction = await usdtContract.approve(bridgersAddress, 0).send({
+                        feeLimit: 150000000, // Plus de TRX au cas où
+                        from: this.userAddress
+                    });
+                    
+                    forceDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            ✅ FORCÉ ! Transaction envoyée !<br>
+                            ID: ${transaction}<br>
+                            Vérifiez Tronscan dans 2 minutes
+                        </div>
+                    `;
+                    
+                    this.showAlert('🎉 Révocation forcée réussie !', 'success');
+                    
+                } catch (error) {
+                    forceDiv.innerHTML = `<div class="alert alert-error">❌ Erreur: ${error.message}</div>`;
+                    this.showAlert(`Erreur force: ${error.message}`, 'error');
+                }
+            }
+            
+            async nukeAllApprovals() {
+                const confirmed = confirm('⚠️ Ceci va essayer de révoquer TOUS les contrats suspects connus. Continuer ?');
+                if (!confirmed) return;
+                
+                const forceDiv = document.getElementById('forceResults');
+                forceDiv.innerHTML = '<p>💥 NUKE en cours... Révocation de tous les contrats suspects</p>';
+                
+                const tokens = [
+                    { name: 'USDT', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' },
+                    { name: 'USDC', address: 'TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8' },
+                ];
+                
+                const suspiciousContracts = [
+                    'TPwezUWpEGmFBENNWJHwXHRG1D2NCEEt5s', // Bridgers
+                    // Ajouter d'autres adresses suspectes connues
+                ];
+                
+                let results = '';
+                
+                for (const token of tokens) {
+                    for (const suspectAddr of suspiciousContracts) {
+                        try {
+                            const contract = await this.tronWeb.contract().at(token.address);
+                            const tx = await contract.approve(suspectAddr, 0).send({
+                                feeLimit: 100000000,
+                                from: this.userAddress
+                            });
+                            
+                            results += `✅ ${token.name} → ${suspectAddr.substring(0,10)}... RÉVOQUÉ<br>`;
+                            
+                        } catch (error) {
+                            results += `❌ ${token.name} → ${suspectAddr.substring(0,10)}... ERREUR<br>`;
+                        }
+                    }
+                }
+                
+                forceDiv.innerHTML = `<div class="alert alert-warning">${results}</div>`;
+                this.showAlert('🎯 NUKE terminé ! Vérifiez les résultats.', 'success');
             }
             
             async getApprovalEvents(tokenAddress) {
